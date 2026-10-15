@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>git.pp playground</title>
+<style>
+:root { --bg: #0d1117; --fg: #c9d1d9; --muted: #8b949e; --border: #30363d; --accent: #58a6ff; --warn: #f0883e; --good: #3fb950; --bad: #f85149; }
+* { box-sizing: border-box; }
+body { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; background: var(--bg); color: var(--fg); margin: 0; padding: 1.5rem; line-height: 1.5; }
+h1, h2, h3 { font-weight: 600; }
+h1 { font-size: 1.5rem; margin: 0 0 .5rem; }
+h2 { font-size: 1.15rem; margin: 1.5rem 0 .5rem; border-bottom: 1px solid var(--border); padding-bottom: .25rem; }
+.subtitle { color: var(--muted); font-size: .9rem; margin-bottom: 1.5rem; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 800px) { .row { grid-template-columns: 1fr; } }
+.panel { background: #161b22; border: 1px solid var(--border); border-radius: 6px; padding: 1rem; }
+textarea { width: 100%; min-height: 280px; background: #0d1117; color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: .5rem; font: inherit; resize: vertical; }
+input[type=text] { width: 100%; background: #0d1117; color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: .5rem; font: inherit; }
+button { background: #21262d; color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: .4rem .8rem; font: inherit; cursor: pointer; margin-right: .5rem; }
+button:hover { background: #30363d; }
+button.primary { background: #238636; border-color: #2ea043; color: white; }
+button.primary:hover { background: #2ea043; }
+label { display: block; font-size: .85rem; color: var(--muted); margin-bottom: .25rem; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: .25rem .75rem; font-size: .9rem; }
+.kv .k { color: var(--muted); }
+.kv .v { word-break: break-all; }
+.verdict { display: inline-block; padding: .15rem .5rem; border-radius: 3px; font-weight: 600; font-size: .85rem; }
+.verdict.VERIFIED { background: rgba(63,185,80,.15); color: var(--good); border: 1px solid rgba(63,185,80,.4); }
+.verdict.MISMATCH { background: rgba(248,81,73,.15); color: var(--bad); border: 1px solid rgba(248,81,73,.4); }
+.verdict.STATE-ONLY { background: rgba(240,136,62,.15); color: var(--warn); border: 1px solid rgba(240,136,62,.4); }
+.verdict.UNKNOWN { background: rgba(139,148,158,.15); color: var(--muted); border: 1px solid var(--border); }
+pre { white-space: pre-wrap; word-break: break-all; background: #0d1117; border: 1px solid var(--border); border-radius: 4px; padding: .5rem; max-height: 400px; overflow: auto; font-size: .85rem; }
+a { color: var(--accent); }
+.examples { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
+.examples button { font-size: .8rem; padding: .25rem .5rem; }
+.error { color: var(--bad); white-space: pre-wrap; }
+.muted { color: var(--muted); }
+.pill { display: inline-block; padding: .1rem .4rem; background: #21262d; border: 1px solid var(--border); border-radius: 3px; font-size: .8rem; }
+</style>
+</head>
+<body>
+<h1>git.pp playground</h1>
+<p class="subtitle">
+  A single-page browser playground for the git.pp fold. Edit records on the left, see the closure root, derived state, and conflicts on the right. Powered by <a href="https://github.com/SuperInstance/gitpp-js">gitpp-js</a>. The JS in <code>src/gitpp.browser.js</code> is a drop-in replacement for the Node version (it uses <code>window.crypto.subtle</code> instead of <code>node:crypto</code>).
+</p>
+
+<h2>Examples</h2>
+<div class="examples">
+  <button data-example="poc-quilt-1">poc-quilt-1 (live)</button>
+  <button data-example="family-calendar">family-calendar</button>
+  <button data-example="tournament-scoring">tournament-scoring</button>
+  <button data-example="service-monitoring">service-monitoring</button>
+  <button data-example="minimal">minimal</button>
+  <button data-example="conflict">conflict</button>
+  <button data-example="orphan">orphan</button>
+</div>
+
+<h2>Input</h2>
+<div class="row">
+  <div class="panel">
+    <label>records (JSON array)</label>
+    <textarea id="records"></textarea>
+  </div>
+  <div class="panel">
+    <label>at (record id to root at)</label>
+    <input id="at" type="text" value="task-c">
+    <label style="margin-top: .5rem;">expected closure root (optional; if set, the verdict is computed)</label>
+    <input id="expected" type="text" placeholder="60effe23970d8a5cc837636c44685502361288c1f00577e9addfa10cbd4fc91d">
+  </div>
+</div>
+<div style="margin-top: 1rem;">
+  <button class="primary" id="run">Run fold</button>
+  <button id="fetchLive">Fetch live poc-quilt-1</button>
+  <span id="status" class="muted" style="margin-left: 1rem;"></span>
+</div>
+
+<h2>Result</h2>
+<div class="row">
+  <div class="panel">
+    <div class="kv">
+      <div class="k">closure root</div><div class="v" id="rootOut">—</div>
+      <div class="k">verdict</div><div class="v" id="verdictOut"><span class="verdict UNKNOWN">UNKNOWN</span></div>
+      <div class="k">records in</div><div class="v" id="countIn">—</div>
+      <div class="k">records in closure</div><div class="v" id="countClosure">—</div>
+      <div class="k">orphans</div><div class="v" id="countOrphans">—</div>
+      <div class="k">conflicts</div><div class="v" id="countConflicts">—</div>
+    </div>
+  </div>
+  <div class="panel">
+    <label>state</label>
+    <pre id="stateOut">—</pre>
+  </div>
+</div>
+<div class="row" style="margin-top: 1rem;">
+  <div class="panel">
+    <label>closure (topo order, by id)</label>
+    <pre id="closureOut">—</pre>
+  </div>
+  <div class="panel">
+    <label>conflicts</label>
+    <pre id="conflictsOut">—</pre>
+  </div>
+</div>
+<div id="errBox" class="error" style="margin-top: 1rem;"></div>
+
+<script type="module">
+import { closureRoot, derive } from "./src/gitpp.browser.js";
+
+const EXAMPLES = {
+  "poc-quilt-1": {
+    at: "task-c",
+    expected: "60effe23970d8a5cc837636c44685502361288c1f00577e9addfa10cbd4fc91d",
+    records: [
+      { id: "genesis", kind: "task", parents: [], effects: { project: "poc-quilt-1", status: "open" } },
+      { id: "task-a", kind: "task", parents: ["genesis"], effects: { "config.timeout": 30, "feature.cache": "on" } },
+      { id: "task-b", kind: "task", parents: ["genesis"], effects: { "config.timeout": 60, "feature.search": "on" } },
+      { id: "override-1", kind: "override", parents: ["task-a", "task-b"], effects: { "config.timeout": 45 }, reason: "captain: 45 is the safe value" },
+      { id: "task-c", kind: "task", parents: ["override-1"], effects: { "feature.inherited": true } },
+      { id: "task-d", kind: "task", parents: ["task-b"], effects: { "config.timeout": 99 } },
+      { id: "witness-1", kind: "witness", parents: ["genesis"], effects: { "env.oracle_disk_pct": 93 } },
+      { id: "witness-2", kind: "witness", parents: ["override-1"], effects: { "env.oracle_load1_x100": 17 } },
+    ],
+  },
+  "family-calendar": {
+    at: "dr-visit",
+    expected: "",
+    records: [
+      { id: "genesis", kind: "task", parents: [], effects: { project: "family-calendar", timezone: "America/Los_Angeles", status: "active" } },
+      { id: "caleb", kind: "task", parents: ["genesis"], effects: { "caleb.tuesday": "soccer", "caleb.thursday": "tutoring" } },
+      { id: "marina", kind: "task", parents: ["genesis"], effects: { "marina.monday": "yoga", "marina.wednesday": "book club" } },
+      { id: "leo", kind: "task", parents: ["genesis"], effects: { "leo.friday": "drum lesson" } },
+      { id: "caregiver", kind: "task", parents: ["genesis"], effects: { "caregiver.saturday": "with grandma" } },
+      { id: "grandma", kind: "witness", parents: ["genesis"], effects: { "grandma.notes": "see kids Saturday" } },
+      { id: "dr-visit", kind: "override", parents: ["caleb"], effects: { "caleb.tuesday": "doctor" }, reason: "annual checkup" },
+      { id: "caleb-confirm", kind: "witness", parents: ["dr-visit"], effects: { "caleb.tuesday_confirmed": true } },
+    ],
+  },
+  "tournament-scoring": {
+    at: "week-summary",
+    expected: "",
+    records: [
+      { id: "genesis", kind: "task", parents: [], effects: { project: "weekly-tournament", format: "round-robin" } },
+      { id: "alice", kind: "task", parents: ["genesis"], effects: { "player.alice.elo": 1500 } },
+      { id: "bob", kind: "task", parents: ["genesis"], effects: { "player.bob.elo": 1500 } },
+      { id: "carol", kind: "task", parents: ["genesis"], effects: { "player.carol.elo": 1500 } },
+      { id: "match-1", kind: "override", parents: ["alice", "bob"], effects: { "match-1.winner": "alice", "match-1.alice.elo_after": 1516, "match-1.bob.elo_after": 1484 }, reason: "alice beat bob" },
+      { id: "match-1-witness", kind: "witness", parents: ["match-1"], effects: { "match-1.confirmed": true } },
+      { id: "match-2", kind: "override", parents: ["carol", "alice"], effects: { "match-2.winner": "carol", "match-2.carol.elo_after": 1516, "match-2.alice.elo_after": 1500 }, reason: "carol beat alice" },
+      { id: "match-2-witness", kind: "witness", parents: ["match-2"], effects: { "match-2.confirmed": true } },
+      { id: "final-standings", kind: "task", parents: ["match-1-witness", "match-2-witness"], effects: { "current.alice.elo": 1500, "current.bob.elo": 1484, "current.carol.elo": 1516, "current.alice.wins": 1, "current.bob.wins": 0, "current.carol.wins": 1 } },
+      { id: "week-summary", kind: "task", parents: ["final-standings"], effects: { "tournament.week": 1, "tournament.matches_played": 2, "tournament.leader": "carol" } },
+    ],
+  },
+  "service-monitoring": {
+    at: "alert-state",
+    expected: "",
+    records: [
+      { id: "genesis", kind: "task", parents: [], effects: { project: "service-monitor", service: "api", version: "1.4.2" } },
+      { id: "thresholds", kind: "task", parents: ["genesis"], effects: { "alert.latency_ms.warn": 200, "alert.latency_ms.crit": 500, "alert.error_rate.warn": 0.01, "alert.error_rate.crit": 0.05 } },
+      { id: "latency-now", kind: "witness", parents: ["genesis"], effects: { "now.latency_ms": 142, "now.timestamp": "2026-10-15T22:00:00Z" } },
+      { id: "error-rate-now", kind: "witness", parents: ["genesis"], effects: { "now.error_rate": 0.003 } },
+      { id: "disk-now", kind: "witness", parents: ["genesis"], effects: { "now.disk_pct": 73 } },
+      { id: "latency-bump", kind: "override", parents: ["thresholds"], effects: { "alert.latency_ms.warn": 400, "alert.latency_ms.crit": 800 }, reason: "planned migration 22:00-23:00" },
+      { id: "alert-state", kind: "task", parents: ["latency-bump", "latency-now", "error-rate-now", "disk-now"], effects: { "alerts.firing_count": 0, "alerts.suppressed": "latency_ms" } },
+    ],
+  },
+  "minimal": {
+    at: "a",
+    expected: "",
+    records: [
+      { id: "a", kind: "task", parents: [], effects: { hello: "world" } },
+    ],
+  },
+  "conflict": {
+    at: "root",
+    expected: "",
+    records: [
+      { id: "root", kind: "task", parents: [], effects: { project: "conflict-demo" } },
+      { id: "t1", kind: "task", parents: ["root"], effects: { "config.x": 1 } },
+      { id: "t2", kind: "task", parents: ["root"], effects: { "config.x": 2 } },
+      { id: "ovr", kind: "override", parents: ["t1", "t2"], effects: { "config.x": 99 }, reason: "captain picks 99" },
+    ],
+  },
+  "orphan": {
+    at: "a",
+    expected: "",
+    records: [
+      { id: "root", kind: "task", parents: [], effects: { project: "orphan-demo" } },
+      { id: "a", kind: "task", parents: ["missing"], effects: { x: 1 } },
+      { id: "b", kind: "task", parents: ["a"], effects: { y: 2 } },
+    ],
+  },
+};
+
+const $ = (id) => document.getElementById(id);
+const recordsEl = $("records");
+const atEl = $("at");
+const expectedEl = $("expected");
+
+function loadExample(name) {
+  const ex = EXAMPLES[name];
+  if (!ex) return;
+  recordsEl.value = JSON.stringify(ex.records, null, 2);
+  atEl.value = ex.at;
+  expectedEl.value = ex.expected || "";
+  $("status").textContent = `loaded example: ${name}`;
+  run();
+}
+
+function setStatus(msg, isError = false) {
+  const s = $("status");
+  s.textContent = msg;
+  s.style.color = isError ? "var(--bad)" : "var(--muted)";
+}
+
+function setVerdict(text, kind) {
+  const v = $("verdictOut");
+  v.innerHTML = `<span class="verdict ${kind}">${text}</span>`;
+}
+
+async function run() {
+  $("errBox").textContent = "";
+  let records, at, expected;
+  try {
+    records = JSON.parse(recordsEl.value);
+    if (!Array.isArray(records)) throw new Error("records must be a JSON array");
+  } catch (e) {
+    $("errBox").textContent = "JSON parse error: " + e.message;
+    return;
+  }
+  at = atEl.value.trim();
+  if (!at) {
+    $("errBox").textContent = "specify an 'at' record id";
+    return;
+  }
+  expected = expectedEl.value.trim();
+
+  setStatus("running fold…");
+  try {
+    const root = await closureRoot(records, at);
+    const d = derive(records);
+    
+    // Update the right-hand panels
+    $("rootOut").textContent = root ?? "(incomplete closure)";
+    $("countIn").textContent = records.length;
+    $("countClosure").textContent = d.order ? d.order.length : 0;
+    $("countOrphans").textContent = d.orphans ? d.orphans.length : 0;
+    $("countConflicts").textContent = d.conflicts ? d.conflicts.length : 0;
+    $("stateOut").textContent = JSON.stringify(d.state, null, 2);
+    $("closureOut").textContent = d.order ? d.order.join("\n") : "(none)";
+    $("conflictsOut").textContent = d.conflicts ? JSON.stringify(d.conflicts, null, 2) : "[]";
+    
+    // Verdict
+    if (!expected) {
+      setVerdict("UNKNOWN", "UNKNOWN");
+    } else if (root === null) {
+      setVerdict("MISMATCH (incomplete)", "MISMATCH");
+    } else if (root === expected) {
+      setVerdict("VERIFIED", "VERIFIED");
+    } else {
+      setVerdict("MISMATCH", "MISMATCH");
+    }
+    setStatus("done.");
+  } catch (e) {
+    setStatus("error: " + e.message, true);
+    $("errBox").textContent = (e.stack || e.message || String(e));
+  }
+}
+
+$("run").onclick = run;
+$("fetchLive").onclick = async () => {
+  setStatus("fetching live poc-quilt-1…");
+  try {
+    const r = await fetch("https://gitpp.superinstance.dev/api/records?project=poc-quilt-1");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    const records = j.records;
+    recordsEl.value = JSON.stringify(records, null, 2);
+    atEl.value = "task-c";
+    expectedEl.value = "60effe23970d8a5cc837636c44685502361288c1f00577e9addfa10cbd4fc91d";
+    setStatus("fetched " + records.length + " records");
+    run();
+  } catch (e) {
+    setStatus("fetch failed: " + e.message, true);
+  }
+};
+
+document.querySelectorAll(".examples button").forEach(btn => {
+  btn.onclick = () => loadExample(btn.dataset.example);
+});
+
+// Boot with poc-quilt-1
+loadExample("poc-quilt-1");
+</script>
+</body>
+</html>
